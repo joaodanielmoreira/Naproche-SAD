@@ -4,10 +4,11 @@ Authors: Andrei Paskevich (2001 - 2008), Steffen Frerix (2017 - 2018)
 Tokenization of input.
 -}
 
-{-# LANGUAGE NamedFieldPuns #-}
+{-# LANGUAGE GADTs #-}
 {-# LANGUAGE InstanceSigs #-}
+{-# LANGUAGE NamedFieldPuns #-}
 
-{-# OPTIONS_GHC -Wall #-}
+{-# OPTIONS_GHC -Wall -fno-warn-unused-do-bind #-}
 
 module SAD.Parser.Token
   ( Token (tokenPos, tokenText),
@@ -19,10 +20,20 @@ module SAD.Parser.Token
     tokenReports,
     composeTokens,
     isEOF,
-    noTokens)
+    noTokens,
+    newTokenize,
+    variable)
   where
 
 import Data.Char (isSpace, isAscii, isAlphaNum)
+
+import           Control.Monad (void)
+import           Control.Monad.Combinators.Expr -- from parser-combinators
+import           Data.Void
+import qualified Text.Megaparsec as M
+import           Text.Megaparsec (Parsec, (<|>))
+import           Text.Megaparsec.Char
+import qualified Text.Megaparsec.Char.Lexer as Lex
 
 import SAD.Core.SourcePos
 import qualified SAD.Core.Message as Message
@@ -34,7 +45,9 @@ data Token =
     tokenText :: String,
     tokenPos :: SourcePos,
     precedingWhiteSpace :: Bool,
-    tokenProper :: Bool} |
+    tokenProper :: Bool,
+    isVar :: Bool,
+    isSymbol :: Bool } |
   EOF {tokenPos :: SourcePos}
 
 
@@ -65,17 +78,23 @@ tokenize start = tokenizeWith start False
 tokenizeWith :: SourcePos -> Bool -> String -> [Token]
 tokenizeWith pos ws s
   | not (null lexem) =
-      Token lexem pos ws True : tokenizeWith (advancesPos pos lexem) False rest
-  where (lexem, rest) = span isLexem s
+      tok : tokenizeWith (advancesPos pos lexem) False rest
+  where
+    (lexem, rest) = span isLexem s
+    tok = Token lexem pos ws True False False
 -- skip whitespace and tell the next token if there was preceding whitespace.
 tokenizeWith pos _ws s
   | not (null white) = tokenizeWith (advancesPos pos white) True rest
   where (white, rest) = span isSpace s
 tokenizeWith pos ws s@('%':_) =
-  Token comment pos False False : tokenizeWith (advancesPos pos comment) ws rest
-  where (comment, rest) = break (== '\n') s
+  tok : tokenizeWith (advancesPos pos comment) ws rest
+  where
+    (comment, rest) = break (== '\n') s
+    tok = Token comment pos False False False False
 tokenizeWith pos ws (c:cs) =
-  Token [c] pos ws True : tokenizeWith (advancePos pos c) False cs
+  tok : tokenizeWith (advancePos pos c) False cs
+  where
+    tok = Token [c] pos ws True False False
 tokenizeWith pos _ws [] = [EOF pos]
 
 isLexem :: Char -> Bool
@@ -114,5 +133,65 @@ isEOF _     = False
 
 instance Show Token where
   showsPrec :: Int -> Token -> ShowS
-  showsPrec _ (Token s p _ _) = showString s . shows p
+  showsPrec _ (Token s p _ _ _ _) = showString s . shows p
   showsPrec _ EOF{} = showString ""
+
+
+-- BEGIN EXPERIMENTAL TOKENIZER
+
+type Parser = Parsec Void String
+
+data NewToken =
+  Word String |
+  Variable FontChoice String |
+  Symbol String |
+  EndOfFile
+
+-- FontChoice uses similar abbreviations as latex.
+-- \mathrm, \mathit, \mathbf, \mathbi
+data FontChoice = RM | IT | BF | CAL | BB | FRAK
+
+
+newTokenize = undefined
+
+variable :: Parser NewToken
+variable = lexeme (varRM <|> varIT)
+
+varRM :: Parser NewToken
+varRM = undefined
+
+varIT :: Parser NewToken
+varIT = do
+  string "\\mathit{"
+  var <- varName
+  string "}"
+  return (Variable IT var)
+
+varName :: Parser String
+varName = fmap (:[]) (letterChar <|> greekChar)
+
+greekChar :: Parser Char
+greekChar = oneOf ['α'..'ω'] <|> oneOf ['Α'..'Ω'] <|> greekAbbrev
+
+greekAbbrev :: Parser Char
+greekAbbrev = foldl1 (<|>) (texAbbrev `fmap` lookupGreek)
+  where
+    lookupGreek = [
+      ("alpha",'α'),
+      ("beta",'β'),
+      ("gamma",'γ')]
+
+texAbbrev :: (String, Char) -> Parser Char
+texAbbrev (cmd, c) = do
+  string ("\\" <> cmd <> "{")
+  return c
+
+spaceConsumer :: Parser ()
+spaceConsumer = Lex.space space1 lineComment blockComment
+  where
+    lineComment  = Lex.skipLineComment "%"
+    blockComment = Lex.skipBlockComment "\\begin{commend}" "\\end{comment}"
+
+-- `lexeme` takes a parser `p` and returns a parser that parses the same input as `p`, plus any trailing whitespace, as defined by `spaceConsumer`.
+lexeme :: Parser a -> Parser a
+lexeme = Lex.lexeme spaceConsumer
