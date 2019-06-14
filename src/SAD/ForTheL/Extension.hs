@@ -5,7 +5,7 @@ Extending the language: definitions, signature extensions, pretypings,
 macros and synonyms.
 -}
 
-{-# OPTIONS_GHC -Wall -fno-warn-unused-do-bind #-}
+{-# OPTIONS_GHC -Wall #-}
 
 module SAD.ForTheL.Extension (
   pretypeVariable,
@@ -171,15 +171,20 @@ introduceMacro = do
   (pos2, (f, g)) <- narrow (prd -|- ntn)
   let pos = rangePos (pos1, pos2)
   addMacroReport pos
-  MS.get >>= addExpr f (ignoreNames g) False
+  _ <- MS.get >>= addExpr f (ignoreNames g) False
   return $ TextMacro pos
   where
     prd = wellFormedCheck (prdVars . snd) $ do
       f <- newPrdPattern avr
-      standFor; g <- statement; (_, pos2) <- dot; return (pos2, (f, g))
+      standFor
+      g <- statement
+      (_, pos2) <- dot
+      return (pos2, (f, g))
     ntn = wellFormedCheck (funVars . snd) $ do
       (n, u) <- unnamedNotion avr
-      standFor; (q, f) <- anotion; (_, pos2) <- dot
+      standFor
+      (q, f) <- anotion
+      (_, pos2) <- dot
       h <- q `fmap` dig f [pVar u]
       return (pos2, (n, h))
 
