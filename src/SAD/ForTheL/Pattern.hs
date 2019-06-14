@@ -6,7 +6,7 @@ Pattern parsing and pattern state management.
 
 {-# LANGUAGE FlexibleContexts #-}
 
-{-# OPTIONS_GHC -Wall -fno-warn-unused-do-bind #-}
+{-# OPTIONS_GHC -Wall #-}
 
 module SAD.ForTheL.Pattern where
 
