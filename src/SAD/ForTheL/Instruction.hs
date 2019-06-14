@@ -6,7 +6,7 @@ Syntax of ForThel Instructions.
 
 {-# LANGUAGE LambdaCase #-}
 
-{-# OPTIONS_GHC -Wall -fno-warn-unused-do-bind #-}
+{-# OPTIONS_GHC -Wall #-}
 
 module SAD.ForTheL.Instruction where
 
