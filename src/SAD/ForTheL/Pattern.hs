@@ -6,7 +6,7 @@ Pattern parsing and pattern state management.
 
 {-# LANGUAGE FlexibleContexts #-}
 
-{-# OPTIONS_GHC -Wall #-}
+{-# OPTIONS_GHC -Wall -fno-warn-unused-do-bind #-}
 
 module SAD.ForTheL.Pattern where
 
@@ -20,25 +20,23 @@ import SAD.Parser.Combinators
 import SAD.Parser.Token
 import SAD.Parser.Primitives
 
-import SAD.Data.Formula
 
-import SAD.Core.SourcePos (SourcePos)
+import SAD.Data.Formula
 
 import Data.List
 import Data.Char
 import Control.Monad
 
 
+import Debug.Trace
 -- add expressions to the state of ForTheL
 
 
-giveId :: Bool -> Int -> Formula -> Formula
 giveId p n t = t {trId = if p then n else (trId t)}
-
-incId ::  Enum p => Bool -> p -> p
 incId p n = if p then succ n else n
 
 addExpr :: Formula -> Formula -> Bool -> FState -> FTL Formula
+
 addExpr t@Trm {trName = 'i':'s':' ':_, trArgs = vs} f p st =
   MS.put ns >> return nf
   where
@@ -107,7 +105,8 @@ addExpr Trm {trName = "=", trArgs = [_, t]} eq@Trm {trName = "="} p st =
     -- increment id counter
     nn = ns {idCount = incId p n}
 
-addExpr t@Trm {trName = _s, trArgs = vs} f p st =
+
+addExpr t@Trm {trName = s, trArgs = vs} f p st =
   MS.put nn >> return nf
   where
     n = idCount st
@@ -127,14 +126,14 @@ addExpr t@Trm {trName = _s, trArgs = vs} f p st =
     nn | snt = ns {sntExpr = (tail pt,fm) : sntExpr st, idCount = incId p n}
        | otherwise = ns {idCount = incId p n}
 
-addExpr _ _ _ _ = error "Cannot apply `addExpr`: not a Trm"
+
+
+
 
 
 -- pattern extraction
 
-
-extractWordPattern :: FState -> Formula -> Formula -> ([Patt], Formula)
-extractWordPattern st t@Trm {trName = s, trArgs = _vs} f = (pt, nf)
+extractWordPattern st t@Trm {trName = s, trArgs = vs} f = (pt, nf)
   where
     pt = map getPatt ws
     nt = t {trName = pr ++ getName pt}
@@ -150,11 +149,8 @@ extractWordPattern st t@Trm {trName = s, trArgs = _vs} f = (pt, nf)
     getName (_:ls) = getName ls
     getName [] = ""
 
-extractWordPattern _ _ _ = error "Cannot apply `extractWordPattern`: not a Trm"
 
-
-extractSymbPattern :: Formula -> Formula -> ([Patt], Formula)
-extractSymbPattern t@Trm {trName = s, trArgs = _vs} f = (pt, nf)
+extractSymbPattern t@Trm {trName = s, trArgs = vs} f = (pt, nf)
   where
     pt = map getPatt (words s)
     nt = t {trName ='s' : getName pt}
@@ -163,17 +159,16 @@ extractSymbPattern t@Trm {trName = s, trArgs = _vs} f = (pt, nf)
     getPatt "#" = Vr
     getPatt w = Sm w
 
-    getName (Sm s':ls) = symEncode s' ++ getName ls
+    getName (Sm s:ls) = symEncode s ++ getName ls
     getName (Vr:ls) = symEncode "." ++ getName ls
-    getName _ = ""
+    getName [] = ""
 
-extractSymbPattern _ _ = error "Cannot apply `extractSymbPattern`: not a Trm"
+
 
 
 -- New patterns
 
 
-newPrdPattern :: FTL Formula -> FTL Formula
 newPrdPattern tvr = multi </> unary </> newSymbPattern tvr
   where
     unary = do
@@ -189,8 +184,6 @@ newPrdPattern tvr = multi </> unary </> newSymbPattern tvr
     unaryVerb = do (t, vs) <- ptHead wlexem tvr; return ("do " ++ t, vs)
     multiVerb = do (t, vs) <- ptHead wlexem tvr; return ("mdo " ++ t, vs)
 
-
-newNtnPattern :: FTL Formula -> FTL (Formula, (String, SourcePos))
 newNtnPattern tvr = (ntn <|> fun) </> unnamedNotion tvr
   where
     ntn = do
@@ -200,8 +193,6 @@ newNtnPattern tvr = (ntn <|> fun) </> unnamedNotion tvr
       the; (t, v:vs) <- ptName wlexem tvr
       return (zEqu v $ zTrm newId ("a " ++ t) vs, (trName v, trPosition v))
 
-
-unnamedNotion :: FTL Formula -> FTL (Formula, (String, SourcePos))
 unnamedNotion tvr = (ntn <|> fun) </> (newSymbPattern tvr >>= equ)
   where
     ntn = do
@@ -211,8 +202,7 @@ unnamedNotion tvr = (ntn <|> fun) </> (newSymbPattern tvr >>= equ)
       the; (t, v:vs) <- ptNoName wlexem tvr
       return (zEqu v $ zTrm newId ("a " ++ t) vs, (trName v, trPosition v))
     equ t = do v <- hidden; return (zEqu (pVar v) t, v)
- 
-    
+
 newSymbPattern :: FTL Formula -> FTL Formula
 newSymbPattern tvr = left -|- right
   where
@@ -228,26 +218,22 @@ newSymbPattern tvr = left -|- right
 -- pattern parsing
 
 
-ptHead :: Parser st String -> Parser st a -> Parser st (String, [a])
 ptHead lxm tvr = do
   l <- unwords <$> chain lxm
   (ls, vs) <- opt ([], []) $ ptTail lxm tvr
   return (l ++ ' ' : ls, vs)
 
 
-ptTail :: Parser st String -> Parser st a -> Parser st (String, [a])
 ptTail lxm tvr = do
   v <- tvr
   (ls, vs) <- opt ([], []) $ ptHead lxm tvr
   return ("# " ++ ls, v:vs)
-
 
 ptName :: FTL String -> FTL Formula -> FTL (String, [Formula])
 ptName lxm tvr = do
   l <- unwords <$> chain lxm; n <- nam
   (ls, vs) <- opt ([], []) $ ptHead lxm tvr
   return (l ++ " . " ++ ls, n:vs)
-
 
 ptNoName :: FTL String -> FTL Formula -> FTL (String, [Formula])
 ptNoName lxm tvr = do
@@ -257,8 +243,8 @@ ptNoName lxm tvr = do
   where
     --ptShort is a kind of buffer that ensures that a variable does not directly
     --follow the name of the notion
-    ptShort lxm' _tvr = do
-      l <- lxm'; (ls, vs) <- ptTail lxm' tvr
+    ptShort lxm _tvr = do
+      l <- lxm; (ls, vs) <- ptTail lxm tvr
       return (l ++ ' ' : ls, vs)
 
 
@@ -270,7 +256,6 @@ wlexem = do
   l <- wlx
   guard $ all isAlpha l
   return $ map toLower l
-
 
 slexem :: Parser FState String
 slexem = slex -|- wlx
@@ -284,7 +269,6 @@ slexem = slex -|- wlx
             [c] -> guard (c `elem` symChars) >> return tk
             _   -> Nothing
 
-
 wlx :: Parser FState String
 wlx = failing nvr >> tokenPrim isWord
   where
@@ -294,25 +278,21 @@ wlx = failing nvr >> tokenPrim isWord
       in guard (all isAlphaNum tk && ltk `notElem` keylist) >> return tk
     keylist = ["a","an","the","is","are","be"]
 
-
 nvr :: FTL Formula
 nvr = do
   v <- var; dvs <- getDecl; tvs <- MS.gets tvrExpr
   guard $ fst v `elem` dvs || any (elem (fst v) . fst) tvs
   return $ pVar v
 
-
 avr :: FTL Formula
 avr = do
   v <- var; guard $ null $ tail $ tail $ fst v
   return $ pVar v
 
-
 nam :: FTL Formula
 nam = do
   n <- fmap (const Top) nvr </> avr
   guard $ isVar n ; return n
-
 
 hid :: MS.MonadState FState f => f Formula
 hid = fmap pVar hidden
